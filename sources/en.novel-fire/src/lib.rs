@@ -89,16 +89,10 @@ impl Source for NovelFire {
 		needs_chapters: bool,
 		page: i32,
 	) -> Result<Novel> {
-		let url = format!("{}/book/{}", &BASE_URL, novel.key);
-		let html = Request::get(&url)?.html()?;
-
-		let post_id = html
-			.select_first("#novel-report")
-			.unwrap()
-			.attr("report-post_id")
-			.unwrap_or_default();
-
 		if needs_details {
+			let url = format!("{}/book/{}", &BASE_URL, novel.key);
+			let html = Request::get(&url)?.html()?;
+
 			let main_div = html.select_first(".cover img").unwrap();
 			let cover = main_div.attr("src").unwrap();
 			let title = html.select_first(".main-head .novel-title").unwrap().text();
@@ -137,39 +131,60 @@ impl Source for NovelFire {
 			novel.url = Some(url);
 		}
 		if needs_chapters {
-			let url = format!("{}/listChapterDataAjax?post_id={}", &BASE_URL, post_id);
+			let url = format!("{}/book/{}/chapters?page={}", &BASE_URL, &novel.key, &page);
+			let html = Request::get(url)?.html()?;
 
-			let mut response = Request::get(url)?.send()?;
-			let data = response.get_json::<ChapterResponse>()?;
-			let chapters = data
-				.data
-				.iter()
-				.map(|chapter_data| Chapter {
-					key: format!("chapter-{}", chapter_data.n_sort),
-					chapter_number: Some(chapter_data.n_sort as f32),
-					title: Some(
-						chapter_data
-							.title
-							.to_string()
-							.split('-')
-							.last()
-							.unwrap_or(&chapter_data.title)
+			let chapters: Vec<Chapter> = html
+				.select(".chapter-list > li")
+				.map(|els| {
+					els.filter_map(|chapter_node| {
+						let title = chapter_node
+							.select_first("a")?
+							.attr("title")?
 							.split(":")
-							.last()
-							.unwrap_or(&chapter_data.title)
+							.nth(1)
+							.unwrap_or("")
 							.trim()
-							.to_string(),
-					),
-					date_uploaded: Some(0),
-					..Default::default()
-				})
-				.collect::<Vec<Chapter>>();
+							.to_string();
+						let chapter_number = chapter_node
+							.select_first(".chapter-no")?
+							.text()?
+							.to_string()
+							.trim()
+							.parse::<f32>()
+							.expect("Failed to get chapter number.");
+						let chapter_id = chapter_node
+							.select_first("a")?
+							.attr("href")?
+							.split("/")
+							.last()
+							.unwrap_or("")
+							.to_string();
+						let _chapter_url =
+							chapter_node.select_first("a")?.attr("href")?.to_string();
+						let date_updated = chapter_node
+							.select_first("time.chapter-update")?
+							.attr("datetime")
+							.and_then(|d| parse_date(d, "yyyy-MM-dd HH:mm:ss"));
 
-			// let has_more = html
-			// 	.select_first(".pagination li.page-item:last-child")
-			// 	.is_some_and(|el| !el.has_class("disabled"));
+						Some(Chapter {
+							key: chapter_id,
+							chapter_number: Some(chapter_number),
+							title: Some(title),
+							date_uploaded: date_updated,
+							..Default::default()
+						})
+					})
+					.collect()
+				})
+				.unwrap_or_default();
+
+			let has_more = html
+				.select_first(".pagination li.page-item:last-child")
+				.is_some_and(|el| !el.has_class("disabled"));
+			println!("novel chapter count {}", chapters.len());
 			novel.chapters = Some(chapters);
-			novel.has_more_chapters = Some(false);
+			novel.has_more_chapters = Some(has_more);
 		}
 		Ok(novel)
 	}
