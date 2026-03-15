@@ -1,0 +1,17 @@
+{
+    "folders": [
+		{
+			"path": "sources/en.novelbuddy"
+		},
+		{
+			"path": "sources/en.novel-fire"
+		},
+		{
+			"path": "templates/madtheme"
+		},
+		{
+			"path": "sources/en.novelsonline"
+		}
+	],
+    "settings": {}
+}

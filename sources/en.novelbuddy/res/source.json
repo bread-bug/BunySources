@@ -1,0 +1,26 @@
+{
+	"info": {
+		"id": "en.novelbuddy",
+		"name": "Novel Buddy",
+		"version": 1,
+		"url": "https://novelbuddy.com",
+		"contentRating": 0,
+		"languages": [
+			"en"
+		]
+	},
+	"listings": [
+		{
+			"id": "popular",
+			"name": "Popular"
+		},
+		{
+			"id": "top/month",
+			"name": "Top This Month"
+		},
+		{
+			"id": "latest",
+			"name": "Most Reviewed"
+		}
+	]
+}

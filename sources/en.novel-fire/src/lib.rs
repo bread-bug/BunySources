@@ -132,6 +132,7 @@ impl Source for NovelFire {
 		}
 		if needs_chapters {
 			let url = format!("{}/book/{}/chapters?page={}", &BASE_URL, &novel.key, &page);
+			println!("Fetching chapters from URL: {}", &url);
 			let html = Request::get(url)?.html()?;
 
 			let chapters: Vec<Chapter> = html
@@ -197,7 +198,6 @@ impl Source for NovelFire {
 		let url = format!("{}/book/{}/{}", &BASE_URL, novel.key, chapter.key);
 		let html = Request::get(&url)?.html()?;
 
-		println!("Fetching chapter content from URL: {}", &url);
 		let mut content_list: Vec<ContentBlock> = html
 			.select("#content p")
 			.map(|els| {
