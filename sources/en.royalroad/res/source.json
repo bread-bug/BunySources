@@ -1,0 +1,32 @@
+{
+  "info": {
+    "id": "royalroad",
+    "name": "Royalroad",
+    "version": 1,
+    "url": "https://www.royalroad.com",
+    "contentRating": 1,
+    "languages": ["en"]
+  },
+  "listings": [
+    {
+      "id": "best-rated",
+      "name": "Best Rated"
+    },
+    {
+      "id": "trending",
+      "name": "Trending"
+    },
+    {
+      "id": "rising-stars",
+      "name": "Rising Stars"
+    },
+    {
+      "id": "new-releases",
+      "name": "New Releases"
+    },
+    {
+      "id": "latest-updates",
+      "name": "Latest Updates"
+    }
+  ]
+}
