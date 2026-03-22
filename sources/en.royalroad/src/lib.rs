@@ -354,8 +354,6 @@ register_source!(
 	// after the name of the source struct, list all the extra traits it implements
 	ListingProvider,
 	Home,
-	//DynamicFilters,
-	DynamicSettings,
 	DynamicListings,
 	NotificationHandler,
 	DeepLinkHandler

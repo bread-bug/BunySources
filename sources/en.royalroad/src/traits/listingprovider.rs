@@ -103,7 +103,7 @@ impl ListingProvider for RoyalRoad {
 						cover: Some(cover),
 						tags,
 						description,
-						status: status,
+						status,
 						url: Some(url),
 						..Default::default()
 					})
