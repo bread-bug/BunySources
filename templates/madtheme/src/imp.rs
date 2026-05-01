@@ -90,47 +90,51 @@ pub trait Impl {
 		mut novel: Novel,
 		needs_details: bool,
 		needs_chapters: bool,
-		page: i32,
+		_page: i32,
 	) -> Result<Novel> {
-		let novel_url = format!("{}/{}/{}", params.base_url, params.novel_path, novel.key);
+		let novel_url = format!("{}/{}", params.base_url, novel.key);
 		let html = Request::get(&novel_url)?.html()?;
 
 		if needs_details {
 			novel.title = html
-				.select_first(".detail h1")
+				.select_first("h1[class*='mangaTitle']")
 				.and_then(|h1| h1.text())
 				.unwrap_or(novel.title);
 			novel.cover = html
-				.select_first("#cover img")
+				.select_first("img[class*='coverImage']")
 				.and_then(|img| img.attr("abs:data-src"))
 				.or(novel.cover);
 			novel.authors = html
-				.select(".detail .meta > p > strong:contains(Authors) ~ a")
+				.select("div[class*='mangaAuthors'] span")
 				.map(|els| {
-					els.filter_map(|el| el.text())
-						.map(|s| s.trim().trim_end_matches(',').trim().into())
-						.collect()
-				});
+				els.filter_map(|el| el.text())
+					.map(|s| s.trim().trim_end_matches(',').trim().into())
+					.collect()
+			});
 			novel.description = html
-				.select_first(".summary .content, .summary .content ~ p")
-				.and_then(|div| div.text());
-			novel.url = Some(novel_url.clone());
-			novel.tags = html
-				.select(".detail .meta > p > strong:contains(Genres) ~ a")
-				.map(|els| {
-					els.filter_map(|el| el.text())
-						.map(|s| s.trim().trim_end_matches(',').into())
-						.collect()
-				});
+				.select("div[class*='description__']")
+				.and_then(|mut els| els.next())
+				.and_then(|el| el.text());
+
+			novel.tags = html.select("a[href*='/genres/']").map(|els| {
+				els.filter_map(|el| el.text())
+					.map(|s| s.trim().trim_end_matches(',').into())
+					.collect()
+			});
 			novel.status = html
-				.select_first(".detail .meta > p > strong:contains(Status) ~ a")
-				.and_then(|el| el.text())
-				.map(|text| match text.to_lowercase().as_str() {
-					"ongoing" => NovelStatus::Ongoing,
-					"completed" => NovelStatus::Completed,
-					"on-hold" => NovelStatus::Hiatus,
-					"canceled" => NovelStatus::Cancelled,
-					_ => NovelStatus::Unknown,
+				.select("div[class*='statItem']")
+				.and_then(|els| {
+					els.filter_map(|el| el.text())
+						.map(|t| t.trim().to_lowercase())
+						.find_map(|t| {
+							Some(match t.as_str() {
+								"ongoing" => NovelStatus::Ongoing,
+								"completed" => NovelStatus::Completed,
+								"on-hold" => NovelStatus::Hiatus,
+								"canceled" => NovelStatus::Cancelled,
+								_ => return None,
+							})
+						})
 				})
 				.unwrap_or_default();
 			let tags = novel.tags.as_deref().unwrap_or(&[]);
@@ -152,30 +156,29 @@ pub trait Impl {
 
 		if needs_chapters {
 			fn parse_chapter_elements(html: &Document, params: &Params) -> Vec<Chapter> {
-				html.select("#chapter-list > li")
+				html.select("div[class*='chapterList'] a")
 					.map(|els| {
 						els.filter_map(|el| {
-							let a = el.select_first("a")?;
-							let link = a.attr("abs:href")?;
-							let title = el.select_first(".chapter-title")?.text()?;
+							let title = el.select_first("h4")?.text()?;
+							let link = el.attr("href")?;
+
 							let chapter_number = helpers::find_first_f32(&title);
+
+							let date_uploaded = el
+								.select("span")
+								.and_then(|els| {
+									els.filter_map(|el| el.text()).find(|t| t.contains("ago"))
+								})
+								.map(|s| {
+									parse_date(s, &params.date_format).unwrap_or(current_date())
+								});
+
 							Some(Chapter {
 								key: link.strip_prefix_or_self(&params.base_url).into(),
-								title: if title.as_str()
-									!= format!("Chapter {}", chapter_number.unwrap_or(0.0))
-								{
-									Some(title)
-								} else {
-									None
-								},
+								title: Some(title),
 								chapter_number,
-								date_uploaded: el
-									.select_first(".chapter-update")
-									.and_then(|el| el.text())
-									.map(|s| {
-										parse_date(s, &params.date_format).unwrap_or(current_date())
-									}),
-								url: Some(link),
+								date_uploaded,
+								url: Some(format!("{}{}", params.base_url, link)),
 								..Default::default()
 							})
 						})
@@ -183,41 +186,59 @@ pub trait Impl {
 					})
 					.unwrap_or_default()
 			}
+			novel.chapters = None;
+			send_partial_result(&novel);
 
-			let fetch_api = html
-				.select_first("div#show-more-chapters > span")
-				.is_some_and(|el| el.attr("onclick").is_some_and(|s| s == "getChapters()"));
-
-			let chapters = if fetch_api {
+			let chapters = (|| -> Result<Vec<Chapter>> {
 				let data = html
-					.select_first("body > div.layout > script")
+					.select_first("script#__NEXT_DATA__")
 					.and_then(|el| el.data())
-					.ok_or(error!("Cannot find script"))?;
+					.ok_or(error!("Cannot find __NEXT_DATA__ script"))?;
 
-				let url = format!(
-					"{}/api/manga/{}/chapters/?source=detail",
-					params.base_url,
-					if params.use_slug_search {
-						data.split_once("var bookSlug = \"")
-							.ok_or(error!("String not found: `var bookSlug = \"`"))?
-							.1
-							.split_once("\";")
-							.ok_or_else(|| error!("String not found: `\";`"))?
-							.0
-					} else {
-						data.split_once("var bookId = ")
-							.ok_or(error!("String not found: `var bookId = `"))?
-							.1
-							.split_once(";")
-							.ok_or_else(|| error!("String not found: `;`"))?
-							.0
-					}
-				);
-				let html = Request::get(&url)?.html()?;
-				parse_chapter_elements(&html, params)
-			} else {
-				parse_chapter_elements(&html, params)
-			};
+				let id = data
+					.split_once("\"mangaHsid\":\"")
+					.ok_or(error!("mangaHsid not found"))?
+					.1
+					.split_once('"')
+					.ok_or(error!("mangaHsid end not found"))?
+					.0;
+
+				let api_base = params
+					.base_url
+					.replace("novelbuddy.com", "api.novelbuddy.com");
+
+				let url = format!("{}/titles/{}/chapters", api_base, id);
+
+				let text = Request::get(&url)?.string()?;
+
+				let json: serde_json::Value =
+					serde_json::from_str(&text).map_err(|_| error!("Invalid JSON"))?;
+
+				let mut chapters: Vec<Chapter> = json["data"]["chapters"]
+					.as_array()
+					.ok_or(error!("Invalid chapters array"))?
+					.iter()
+					.map(|ch| {
+						let name = ch["name"].as_str().unwrap_or("").to_string();
+						let link = ch["url"].as_str().unwrap_or("");
+
+						Chapter {
+							key: link.strip_prefix_or_self(&params.base_url).into(),
+							title: Some(name.clone()),
+							chapter_number: helpers::find_first_f32(&name),
+							date_uploaded: ch["updated_at"]
+								.as_str()
+								.and_then(|d| parse_date(d, &params.date_format)),
+							url: Some(format!("{}{}", params.base_url, link)),
+							..Default::default()
+						}
+					})
+					.collect();
+
+				chapters.reverse();
+				Ok(chapters)
+			})()
+			.unwrap_or_else(|_| parse_chapter_elements(&html, params));
 
 			novel.chapters = Some(chapters);
 		}
@@ -227,7 +248,7 @@ pub trait Impl {
 
 	fn get_chapter_content_list(
 		&self,
-		novel: Novel,
+		_novel: Novel,
 		chapter: Chapter,
 		params: &Params,
 	) -> Result<Vec<ContentBlock>> {
@@ -235,7 +256,7 @@ pub trait Impl {
 		let html = Request::get(&url)?.html()?;
 
 		let mut content_list: Vec<ContentBlock> = html
-			.select(".content-inner p")
+			.select(".novel-tts-content p")
 			.map(|els| {
 				els.filter_map(|content_node| {
 					let content = content_node.text()?.to_string();
@@ -268,17 +289,21 @@ pub trait Impl {
 
 		Ok(NovelPageResult {
 			entries: html
-				.select(".book-detailed-item")
+				.select(".flex.flex-col.h-full")
 				.map(|els| {
 					els.filter_map(|el| {
-						let link = el.select_first("a")?;
-						let key: String = link
-							.attr("href")?
+						let link = el.select_first("a.link-hover")?;
+						let href = link.attr("href")?;
+
+						let key: String = href
 							.strip_prefix_or_self(&params.base_url)
-							.strip_prefix_or_self(format!("/{}/", &params.novel_path).as_str()) // stips /novel/ if it exists
+							.strip_prefix_or_self(format!("/{}/", &params.novel_path).as_str())
 							.into();
-						let title = link.attr("title").unwrap_or_default().to_string();
-						let cover = el.select_first("img")?.attr("abs:data-src")?.to_string();
+
+						let cover = el.select_first("img")?.attr("src")?.to_string();
+
+						let title = el.select(".link-hover")?.next()?.text()?;
+
 						Some(Novel {
 							key: key,
 							title: title,
