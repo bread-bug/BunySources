@@ -25,62 +25,81 @@ pub trait Impl {
 		filters: Vec<FilterValue>,
 	) -> Result<NovelPageResult> {
 		let mut qs = QueryParameters::new();
-		qs.push("page", Some(&page.to_string()));
-		qs.push("q", query.as_deref());
-		qs.push("status", Some("all"));
+
+		qs.set("page", Some(&page.to_string()));
+		if let Some(q) = query.as_deref() {
+			if !q.is_empty() {
+				qs.set("q", Some(q));
+			}
+		}
+		qs.set("status", Some("all"));
 
 		for filter in filters {
 			match filter {
 				FilterValue::Sort { id, index, .. } => {
 					let value = match index {
-						0 => "views",
-						1 => "updated_at",
-						2 => "created_at",
-						3 => "name",
-						4 => "rating",
-						_ => "views",
+						0 => "",
+						1 => "latest",
+						2 => "popular",
+						3 => "rating",
+						4 => "views",
+						5 => "chapters",
+						6 => "alphabetical",
+						_ => "",
 					};
-					qs.push(&id, Some(value));
+					if value.is_empty() {
+						qs.set(&id, None);
+					} else {
+						qs.set(&id, Some(value));
+					}
 				}
 				FilterValue::Select { id, value } => {
-					qs.set(&id, Some(&value));
+					if value == "all" {
+						qs.set(&id, None);
+					} else {
+						qs.set(&id, Some(&value));
+					}
 				}
-				FilterValue::MultiSelect { id, included, .. } => {
-					for item in included {
-						qs.push(&id, Some(&item));
+				FilterValue::MultiSelect {
+					included, excluded, ..
+				} => {
+					for id in included {
+						qs.push("genres", Some(&id));
+					}
+					for id in excluded {
+						qs.push("exclude", Some(&id));
 					}
 				}
 				_ => {}
 			}
 		}
 
-		let url = format!("{}/search?{qs}", params.base_url);
-		let html = Request::get(url)?.html()?;
+		let url = format!("{}/titles/search?{}", params.api_url, qs.to_string());
+		let text = Request::get(&url)?.string()?;
+		let json: serde_json::Value =
+			serde_json::from_str(&text).map_err(|_| error!("Invalid JSON"))?;
 
 		Ok(NovelPageResult {
-			entries: html
-				.select(".book-detailed-item")
-				.map(|els| {
-					els.filter_map(|el| {
-						let link = el.select_first("a")?;
-						let key: String = link
-							.attr("href")?
-							.strip_prefix_or_self(&params.base_url)
-							.strip_prefix_or_self(format!("/{}/", &params.novel_path).as_str()) // stips /novel/ if it exists
-							.into();
-						Some(Novel {
-							key: key,
-							title: link.attr("title")?,
-							cover: el.select_first("img")?.attr("abs:data-src"),
-							..Default::default()
-						})
-					})
-					.collect()
+			entries: json["data"]["items"]
+				.as_array()
+				.ok_or(error!("Invalid items array"))?
+				.iter()
+				.map(|item| {
+					let link = item["url"].as_str().unwrap_or("");
+					let name = item["name"].as_str().unwrap_or("");
+
+					Novel {
+						key: link.strip_prefix('/').unwrap_or(link).to_string(),
+						title: name.to_string(),
+						cover: item["cover"].as_str().map(|s| s.to_string()),
+						..Default::default()
+					}
 				})
-				.unwrap_or_default(),
-			has_next_page: html
-				.select_first(".paginator > a.active + a:not([rel=next])")
-				.is_some(),
+				.collect(),
+
+			has_next_page: json["data"]["pagination"]["has_next"]
+				.as_bool()
+				.unwrap_or(false),
 		})
 	}
 
@@ -203,11 +222,7 @@ pub trait Impl {
 					.ok_or(error!("mangaHsid end not found"))?
 					.0;
 
-				let api_base = params
-					.base_url
-					.replace("novelbuddy.com", "api.novelbuddy.com");
-
-				let url = format!("{}/titles/{}/chapters", api_base, id);
+				let url = format!("{}/titles/{}/chapters", params.api_url, id);
 
 				let text = Request::get(&url)?.string()?;
 
