@@ -11,16 +11,24 @@
 	},
 	"listings": [
 		{
+			"id": "latest",
+			"name": "Latest"
+		},
+		{
+			"id": "trending",
+			"name": "Trending"
+		},
+		{
 			"id": "popular",
 			"name": "Popular"
 		},
 		{
-			"id": "top/month",
-			"name": "Top This Month"
+			"id": "newest",
+			"name": "Newest"
 		},
 		{
-			"id": "latest",
-			"name": "Most Reviewed"
+			"id": "top/month",
+			"name": "Top This Month"
 		}
 	]
 }

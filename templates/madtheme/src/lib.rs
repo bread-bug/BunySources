@@ -1,10 +1,8 @@
 #![no_std]
 use buny::{
-	Chapter, ContentBlock, ContentRating, FilterValue, Home, HomeLayout, Listing, ListingProvider,
+	Chapter, ContentBlock, ContentRating, FilterValue, Listing, ListingProvider,
 	Novel, NovelPageResult, Result, Source,
 	alloc::{String, Vec, borrow::Cow},
-	imports::net::Request,
-	println,
 };
 
 mod helpers;

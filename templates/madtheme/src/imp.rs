@@ -1,13 +1,12 @@
 use crate::{Params, helpers};
 use buny::{
-	Chapter, ContentBlock, ContentRating, FilterValue, Home, HomeComponent, HomeLayout,
-	HomePartialResult, Listing, Novel, NovelPageResult, NovelStatus, Result, Source,
-	alloc::{String, Vec, string::ToString, vec},
+	Chapter, ContentBlock, ContentRating, FilterValue, Listing, Novel, NovelPageResult, NovelStatus, Result,
+	alloc::{String, Vec, string::ToString},
 	helpers::{string::StripPrefixOrSelf, uri::QueryParameters},
 	imports::{
-		html::{Document, Html},
+		html::Document,
 		net::Request,
-		std::{current_date, parse_date, print, send_partial_result},
+		std::{current_date, parse_date, send_partial_result},
 	},
 	prelude::*,
 };
@@ -27,11 +26,10 @@ pub trait Impl {
 		let mut qs = QueryParameters::new();
 
 		qs.set("page", Some(&page.to_string()));
-		if let Some(q) = query.as_deref() {
-			if !q.is_empty() {
+		if let Some(q) = query.as_deref()
+			&& !q.is_empty() {
 				qs.set("q", Some(q));
 			}
-		}
 		qs.set("status", Some("all"));
 
 		for filter in filters {
@@ -74,7 +72,7 @@ pub trait Impl {
 			}
 		}
 
-		let url = format!("{}/titles/search?{}", params.api_url, qs.to_string());
+		let url = format!("{}/titles/search?{}", params.api_url, qs);
 		let text = Request::get(&url)?.string()?;
 		let json: serde_json::Value =
 			serde_json::from_str(&text).map_err(|_| error!("Invalid JSON"))?;
@@ -298,9 +296,19 @@ pub trait Impl {
 		Ok(content_list)
 	}
 
-	fn get_novel_list(&self, params: &Params, listing: Listing, _: i32) -> Result<NovelPageResult> {
-		let url = format!("{}/{}", params.base_url, listing.id);
+	fn get_novel_list(&self, params: &Params, listing: Listing, page: i32) -> Result<NovelPageResult> {
+		let url = format!("{}/{}?page={}", params.base_url, listing.id, page);
 		let html = Request::get(url)?.html()?;
+		let has_next_page = html
+			.select("button")
+			.map(|mut buttons| {
+				buttons.any(|el| {
+					el.text()
+						.map(|t| t.trim().contains("Load More"))
+						.unwrap_or(false)
+				})
+			})
+			.unwrap_or(false);
 
 		Ok(NovelPageResult {
 			entries: html
@@ -320,8 +328,8 @@ pub trait Impl {
 						let title = el.select(".link-hover")?.next()?.text()?;
 
 						Some(Novel {
-							key: key,
-							title: title,
+							key,
+							title,
 							cover: Some(cover),
 							..Default::default()
 						})
@@ -329,7 +337,7 @@ pub trait Impl {
 					.collect()
 				})
 				.unwrap_or_default(),
-			has_next_page: false,
+			has_next_page,
 		})
 	}
 }
